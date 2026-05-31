@@ -103,13 +103,7 @@ python training/train_finetune.py
 python experiments/eval_lane_detection.py
 ```
 
-## 수정된 학습 흐름
-
-기존 코드에서는 contrastive 학습 단계에서 원본/노이즈 pair가 명확히 생성되지 않았고, fine-tuning 단계에서는 encoder가 freeze되어 있었습니다. 이 구조에서는 조명 노이즈에 강한 encoder를 만들더라도 lane detection task에 맞게 표현을 조정하기 어렵습니다.
-
-현재 구조에서는 같은 원본 이미지의 clean/noisy view를 positive pair로 사용하고, fine-tuning 시 encoder와 lane head를 함께 학습합니다. encoder는 head보다 낮은 learning rate를 사용해 contrastive representation을 유지하면서 lane detection에 맞게 조정됩니다.
-
-## 기대 동작
+## 결과
 
 - 빛 반사와 산란으로 생긴 입력 변화에 대해 encoder feature가 덜 흔들립니다.
 - noisy image와 clean image가 가까운 embedding으로 정렬됩니다.
