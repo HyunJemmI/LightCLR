@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from pathlib import Path
 
 
 def get_resnet34(pretrained: bool = False, simclr_weights: str | None = None) -> nn.Module:
@@ -11,8 +10,8 @@ def get_resnet34(pretrained: bool = False, simclr_weights: str | None = None) ->
         pretrained (bool): If True, load ImageNet weights.
         simclr_weights (str | None): Optional path to SimCLR‑pretrained weights.
     """
-    backbone = models.resnet34(pretrained=pretrained)
-    # Drop the average‑pool & fc layers → CxHxW feature map (C=512)
+    weights = models.ResNet34_Weights.DEFAULT if pretrained else None
+    backbone = models.resnet34(weights=weights)
     encoder = nn.Sequential(*list(backbone.children())[:-2])
 
     if simclr_weights:
@@ -23,8 +22,11 @@ def get_resnet34(pretrained: bool = False, simclr_weights: str | None = None) ->
     return encoder
 
 
-def freeze(module: nn.Module):
-    """Freeze parameters & put BatchNorms in eval mode."""
+def set_trainable(module: nn.Module, trainable: bool):
     for p in module.parameters():
-        p.requires_grad = False
-    module.eval()
+        p.requires_grad = trainable
+    module.train(trainable)
+
+
+def freeze(module: nn.Module):
+    set_trainable(module, False)

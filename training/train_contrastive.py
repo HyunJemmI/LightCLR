@@ -1,52 +1,84 @@
-from configs.lane_det_config import CFG
-from utils.logger import get_logger
-from models.encoder import get_resnet34
+from pathlib import Path
 
 import torch
-import torchvision.transforms as T
+import torch.nn as nn
 from torch.utils.data import DataLoader
 
-# 3rd‑party: lightly – install via `pip install lightly`
-from lightly.loss import NTXentLoss
-from lightly.models.modules import SimCLRProjectionHead
-from lightly.data import LightlyDataset
+from configs.lane_det_config import CFG
+from data.contrastive_dataset import NoisePairDataset
+from models.encoder import get_resnet34
+from training.losses import nt_xent_loss
+from utils.logger import get_logger
+
 
 logger = get_logger("contrastive")
 
 
-def get_transform():
-    return T.Compose([
-        T.RandomResizedCrop(224),
-        T.RandomApply([T.ColorJitter(.8, .8, .8, .2)], p=.8),
-        T.RandomGrayscale(p=.2),
-        T.GaussianBlur(3),
-        T.ToTensor(),
-    ])
+class ProjectionHead(nn.Module):
+    def __init__(self, in_channels=512, hidden_dim=512, out_dim=128):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.layers = nn.Sequential(
+            nn.Linear(in_channels, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, out_dim),
+        )
+
+    def forward(self, features):
+        pooled = self.pool(features).flatten(1)
+        return self.layers(pooled)
+
+
+class SimCLRModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.encoder = get_resnet34(pretrained=False)
+        self.projector = ProjectionHead()
+
+    def forward(self, images):
+        return self.projector(self.encoder(images))
 
 
 def main():
-    dataset = LightlyDataset(input_dir=CFG["data_root"], transform=get_transform())
-    loader = DataLoader(dataset, batch_size=CFG["batch_size"], shuffle=True, num_workers=4, drop_last=True)
+    dataset = NoisePairDataset(CFG["contrastive_roots"], image_size=CFG["image_size"])
+    loader = DataLoader(
+        dataset,
+        batch_size=CFG["batch_size"],
+        shuffle=True,
+        num_workers=4,
+        drop_last=True,
+    )
 
-    encoder = get_resnet34(pretrained=False).to(CFG["device"])
-    projector = SimCLRProjectionHead(512, 512, 128).to(CFG["device"])
-    model = torch.nn.Sequential(encoder, projector)
-
-    loss_fn = NTXentLoss()
-    optim = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model = SimCLRModel().to(CFG["device"])
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=CFG["learning_rate"],
+        weight_decay=CFG["weight_decay"],
+    )
 
     for epoch in range(CFG["num_epochs"]):
         model.train()
-        for (view1, view2), _ in loader:
-            view1, view2 = view1.to(CFG["device"]), view2.to(CFG["device"])
-            z1 = model(view1)
-            z2 = model(view2)
-            loss = loss_fn(z1, z2)
-            optim.zero_grad(); loss.backward(); optim.step()
-        logger.info(f"epoch {epoch} contrastive‑loss {loss.item():.4f}")
+        running_loss = 0.0
 
-    torch.save(encoder.state_dict(), CFG["simclr_weights"])
-    logger.info("Saved encoder → %s", CFG["simclr_weights"])
+        for clean_view, noisy_view in loader:
+            clean_view = clean_view.to(CFG["device"])
+            noisy_view = noisy_view.to(CFG["device"])
+
+            z_clean = model(clean_view)
+            z_noisy = model(noisy_view)
+            loss = nt_xent_loss(z_clean, z_noisy)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            running_loss += loss.item()
+
+        mean_loss = running_loss / max(1, len(loader))
+        logger.info("epoch %s contrastive-loss %.4f", epoch, mean_loss)
+
+    Path(CFG["simclr_weights"]).parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.encoder.state_dict(), CFG["simclr_weights"])
+    logger.info("Saved encoder -> %s", CFG["simclr_weights"])
 
 
 if __name__ == "__main__":

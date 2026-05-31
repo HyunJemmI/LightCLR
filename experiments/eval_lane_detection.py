@@ -12,7 +12,7 @@ from utils.metrics import tusimple_accuracy
 
 def build_model(weight_path: str, freeze_enc: bool):
     encoder = get_resnet34(False).to(CFG["device"])
-    head = LaneATTHead(512, CFG["num_anchors"]).to(CFG["device"])
+    head = LaneATTHead(512, CFG["num_anchors"], CFG["lane_points"]).to(CFG["device"])
     model = LaneDetectionModel(encoder, head, freeze_encoder=freeze_enc).to(CFG["device"])
     state = torch.load(weight_path, map_location=CFG["device"])
     model.load_state_dict(state)
@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     checkpoints = {
         "baseline": ("outputs/baseline_laneatt.pt", False),
-        "simclr_ft": ("outputs/finetuned_laneatt.pt", True),
+        "simclr_ft": ("outputs/finetuned_laneatt.pt", False),
     }
 
     for name, (ckpt, frz) in checkpoints.items():

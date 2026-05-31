@@ -2,9 +2,11 @@ import torch
 
 
 def tusimple_accuracy(pred: torch.Tensor, gt: torch.Tensor, thresh: float = 5.0):
-    """Very rough placeholder for TuSimple metric (x‑error < thresh)."""
-    # pred: (B, A, 2) – using only offset channel here (column 0)
-    pred_x = pred[..., 0]
-    diff = (pred_x - gt).abs()
-    correct = (diff < thresh).float().mean()
+    """Point-wise lane accuracy on normalized x coordinates."""
+    normalized_thresh = thresh / 1280.0
+    mask = gt >= 0
+    if not mask.any():
+        return 0.0
+    diff = (pred - gt).abs()
+    correct = (diff[mask] < normalized_thresh).float().mean()
     return correct.item()

@@ -1,6 +1,5 @@
 torch>=2.2.0
 torchvision>=0.17.0
-lightly[full]>=1.4.23
 pillow
 numpy
 tqdm
